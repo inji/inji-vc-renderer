@@ -25,7 +25,28 @@ class JsonPointerResolver(private val traceabilityId: String) {
         qrCodeData: String?
     ): String {
         val svgWithQrCodeReplaced = replaceQrCodePlaceholder(svg, vcJsonString, qrCodeData)
-        return replaceVcPlaceholders(svgWithQrCodeReplaced, vcJsonNode, renderMethodElement)
+        val svgWithValues = replaceVcPlaceholders(svgWithQrCodeReplaced, vcJsonNode, renderMethodElement)
+        return replaceInvalidImageHrefs(svgWithValues)
+    }
+
+    /**
+     * The old flow deleted an image whose href was "-". Keep the tag and show the
+     * dummy portrait instead. That picture already includes the "No Image Available" label.
+     * A normal base64 photo is left unchanged. Text that resolved to "-" is left unchanged.
+     */
+    private fun replaceInvalidImageHrefs(svg: String): String {
+        return IMAGE_TAG_REGEX.replace(svg) { imageMatch ->
+            HREF_ATTR_REGEX.replace(imageMatch.value) { hrefMatch ->
+                val value = hrefMatch.groupValues[3]
+                if (value.trim() != "-") {
+                    hrefMatch.value
+                } else {
+                    val prefix = hrefMatch.groupValues[1]
+                    val quote = hrefMatch.groupValues[2]
+                    "${prefix}href=$quote${NoImagePlaceholder.DATA_URI}$quote"
+                }
+            }
+        }
     }
 
     private fun replaceVcPlaceholders(svg: String, vcJsonNode: JsonNode, element: JsonNode): String {
@@ -103,8 +124,15 @@ class JsonPointerResolver(private val traceabilityId: String) {
         }
     }
 
-
     companion object {
         private val PLACEHOLDER_REGEX = Regex("\\{\\{(/[^}]*)\\}\\}|\\{\\{\\}\\}")
+        private val IMAGE_TAG_REGEX = Regex(
+            """<(?:[\w.-]+:)?image\b[^>]*/>|<(?:[\w.-]+:)?image\b[^>]*>\s*</(?:[\w.-]+:)?image>""",
+            RegexOption.IGNORE_CASE
+        )
+        private val HREF_ATTR_REGEX = Regex(
+            """((?:xlink:)?)href\s*=\s*(["'])(.*?)\2""",
+            setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL)
+        )
     }
 }

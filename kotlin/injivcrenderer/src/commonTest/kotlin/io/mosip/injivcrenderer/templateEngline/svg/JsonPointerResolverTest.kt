@@ -2,6 +2,7 @@ package io.mosip.injivcrenderer.templateEngline.svg
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import io.mosip.injivcrenderer.templateEngine.svg.JsonPointerResolver
+import io.mosip.injivcrenderer.templateEngine.svg.NoImagePlaceholder
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -292,5 +293,56 @@ class JsonPointerResolverTest {
 
         val result = JsonPointerResolver("test-trace-id").replacePlaceholders(svgTemplateWithLocale, processedJson, listOf("/credentialSubject/gender/0/value"));
         assertEquals(expected, result)
+    }
+
+    @Test
+    fun `missing face image uses placeholder and text dash is kept`() {
+        val svg = "<svg><text>{{/credentialSubject/email}}</text>" +
+            "<image id=\"portrait\" x=\"10\" y=\"12\" width=\"80\" height=\"100\" xlink:href=\"{{/credentialSubject/face}}\"/>" +
+            "<image id=\"logo\" xlink:href=\"$TINY_PNG_DATA_URI\"/></svg>"
+        val vc = mapper.readTree("""{"credentialSubject":{"fullName":"John"}}""")
+        val renderMethod = mapper.readTree("""{"type":"TemplateRenderMethod"}""")
+
+        val result = JsonPointerResolver("test-trace-id").replaceSvgPlaceholders(svg, vc, renderMethod, "{}", null)
+
+        assertEquals(
+            "<svg><text>-</text>" +
+                "<image id=\"portrait\" x=\"10\" y=\"12\" width=\"80\" height=\"100\" xlink:href=\"${NoImagePlaceholder.DATA_URI}\"/>" +
+                "<image id=\"logo\" xlink:href=\"$TINY_PNG_DATA_URI\"/></svg>",
+            result
+        )
+    }
+
+    @Test
+    fun `static dash image href uses placeholder`() {
+        val svg = "<svg><image id=\"portrait\" xlink:href=\"-\"/></svg>"
+        val vc = mapper.readTree("""{"credentialSubject":{}}""")
+        val renderMethod = mapper.readTree("""{"type":"TemplateRenderMethod"}""")
+
+        val result = JsonPointerResolver("test-trace-id").replaceSvgPlaceholders(svg, vc, renderMethod, "{}", null)
+
+        assertEquals(
+            "<svg><image id=\"portrait\" xlink:href=\"${NoImagePlaceholder.DATA_URI}\"/></svg>",
+            result
+        )
+    }
+
+    @Test
+    fun `valid face data uri image is kept`() {
+        val svg = "<svg><image id=\"portrait\" xlink:href=\"{{/credentialSubject/face}}\"/></svg>"
+        val vc = mapper.readTree("""{"credentialSubject":{"face":"$TINY_PNG_DATA_URI"}}""")
+        val renderMethod = mapper.readTree("""{"type":"TemplateRenderMethod"}""")
+
+        val result = JsonPointerResolver("test-trace-id").replaceSvgPlaceholders(svg, vc, renderMethod, "{}", null)
+
+        assertEquals(
+            "<svg><image id=\"portrait\" xlink:href=\"$TINY_PNG_DATA_URI\"/></svg>",
+            result
+        )
+    }
+
+    private companion object {
+        const val TINY_PNG_DATA_URI =
+            "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
     }
 }
