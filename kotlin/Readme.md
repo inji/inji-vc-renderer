@@ -20,13 +20,13 @@ Choose the artifact that best fits your project.
 **Android (AAR)**
 
 ```gradle
-implementation("io.inji:injivcrenderer-aar:1.0.0-alpha.1")
+implementation("io.inji:injivcrenderer-aar:1.0.0-rc.2")
 ```
 
 **JVM (JAR)**
 
 ```gradle
-implementation("io.inji:injivcrenderer-jar:1.0.0-alpha.1")
+implementation("io.inji:injivcrenderer-jar:1.0.0-rc.2")
 ```
 
 #### Maven
@@ -37,7 +37,7 @@ implementation("io.inji:injivcrenderer-jar:1.0.0-alpha.1")
 <dependency>
     <groupId>io.inji</groupId>
     <artifactId>injivcrenderer-aar</artifactId>
-    <version>1.0.0-alpha.1</version>
+    <version>1.0.0-rc.2</version>
 </dependency>
 ```
 
@@ -47,7 +47,7 @@ implementation("io.inji:injivcrenderer-jar:1.0.0-alpha.1")
 <dependency>
     <groupId>io.inji</groupId>
     <artifactId>injivcrenderer-jar</artifactId>
-    <version>1.0.0-alpha.1</version>
+    <version>1.0.0-rc.2</version>
 </dependency>
 ```
 
