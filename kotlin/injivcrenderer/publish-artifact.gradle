@@ -1,5 +1,5 @@
 group = "io.inji"
-version = "1.0.0-alpha.2-SNAPSHOT"
+version = "1.0.0-rc.2-SNAPSHOT"
 
 publishing {
     repositories {
