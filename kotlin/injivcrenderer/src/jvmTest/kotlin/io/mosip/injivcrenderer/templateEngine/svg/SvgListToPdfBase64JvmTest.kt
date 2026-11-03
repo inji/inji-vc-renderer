@@ -1,10 +1,13 @@
 package io.mosip.injivcrenderer.templateEngine.svg
 
 
+import com.fasterxml.jackson.databind.JsonNode
+import com.fasterxml.jackson.databind.ObjectMapper
 import org.apache.pdfbox.pdmodel.PDDocument
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import kotlin.test.fail
 import java.util.Base64
 
 class SvgListToPdfBase64JvmTest {
@@ -61,6 +64,51 @@ class SvgListToPdfBase64JvmTest {
 
         PDDocument.load(pdfBytes.inputStream()).use { doc ->
             assertEquals(1, doc.numberOfPages, "Single SVG should create a PDF with exactly 1 page")
+        }
+    }
+
+    @Test
+    fun `test missing or invalid image href still produces PDF`() {
+        val mapper = ObjectMapper()
+        val renderMethod = mapper.readTree("""{"type":"TemplateRenderMethod"}""")
+        val tinyPng = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+        val portrait = """<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200">""" +
+            """<image width="80" height="100" xlink:href="{{/credentialSubject/face}}"/></svg>"""
+        val prefixed = portrait.replace("{{/credentialSubject/face}}", "data:image/png;base64,{{/credentialSubject/face}}")
+        val withDataHref = portrait.replace("xlink:href=", "data-href=\"-\" xlink:href=")
+        val withTitle = portrait.replace("/></svg>", "><title>Portrait</title></image></svg>")
+
+        val cases = listOf(
+            portrait to null,
+            portrait to "",
+            portrait to "   ",
+            prefixed to null,
+            portrait to "data:image/png;base64,abc",
+            portrait to "data:image/png;base64,iVBO=Rw0",
+            portrait to "data:image/png;base64,%%garbage%%",
+            portrait to "abc",
+            portrait to "null",
+            portrait to "data:text/plain;base64,aGVsbG8=",
+            portrait to "data:image/png,%GG",
+            portrait to "data:image/svg+xml,%3Csvg%",
+            portrait to "logo.png",
+            portrait to "#photo",
+            portrait to "https://",
+            withTitle to null,
+            withDataHref to tinyPng
+        )
+
+        for ((template, face) in cases) {
+            val credentialSubject = if (face == null) emptyMap() else mapOf("face" to face)
+            val vc = mapper.valueToTree<JsonNode>(mapOf("credentialSubject" to credentialSubject))
+            val svg = JsonPointerResolver("test-trace-id").replaceSvgPlaceholders(template, vc, renderMethod, "{}", null)
+
+            val base64Pdf = runCatching { svgListToPdfBase64(listOf(svg)) }
+                .getOrElse { fail("PDF generation failed for face: $face", it) }
+
+            PDDocument.load(Base64.getDecoder().decode(base64Pdf).inputStream()).use { doc ->
+                assertEquals(1, doc.numberOfPages, "face: $face")
+            }
         }
     }
 

@@ -38,7 +38,7 @@ class JsonPointerResolver(private val traceabilityId: String) {
         return IMAGE_TAG_REGEX.replace(svg) { imageMatch ->
             HREF_ATTR_REGEX.replace(imageMatch.value) { hrefMatch ->
                 val value = hrefMatch.groupValues[3]
-                if (value.trim() != "-") {
+                if (isRenderableImageHref(value)) {
                     hrefMatch.value
                 } else {
                     val prefix = hrefMatch.groupValues[1]
@@ -47,6 +47,39 @@ class JsonPointerResolver(private val traceabilityId: String) {
                 }
             }
         }
+    }
+
+    private fun isRenderableImageHref(href: String): Boolean {
+        val value = href.trim()
+        return when {
+            HTTP_URL_REGEX.containsMatchIn(value) -> true
+            value.startsWith("data:", ignoreCase = true) -> isValidImageDataUri(value)
+            else -> false
+        }
+    }
+
+    private fun isValidImageDataUri(dataUri: String): Boolean {
+        val content = dataUri.substring("data:".length)
+        val commaIndex = content.indexOf(',')
+        if (commaIndex == -1) return false
+
+        val metadata = content.substring(0, commaIndex).split(';').map { it.trim().lowercase() }
+        if (!metadata.first().startsWith("image/")) return false
+
+        val payload = content.substring(commaIndex + 1).filterNot { it.isWhitespace() }
+        return if ("base64" in metadata.drop(1)) isBase64(payload) else isPercentEncoded(payload)
+    }
+
+    private fun isPercentEncoded(value: String): Boolean {
+        return value.isNotEmpty() && !MALFORMED_PERCENT_ESCAPE_REGEX.containsMatchIn(value)
+    }
+
+    private fun isBase64(value: String): Boolean {
+        val paddingCount = value.length - value.trimEnd('=').length
+        return value.isNotEmpty() &&
+            value.length % 4 == 0 &&
+            paddingCount <= 2 &&
+            value.dropLast(paddingCount).all { it in 'A'..'Z' || it in 'a'..'z' || it in '0'..'9' || it == '+' || it == '/' }
     }
 
     private fun replaceVcPlaceholders(svg: String, vcJsonNode: JsonNode, element: JsonNode): String {
@@ -127,12 +160,14 @@ class JsonPointerResolver(private val traceabilityId: String) {
     companion object {
         private val PLACEHOLDER_REGEX = Regex("\\{\\{(/[^}]*)\\}\\}|\\{\\{\\}\\}")
         private val IMAGE_TAG_REGEX = Regex(
-            """<(?:[\w.-]+:)?image\b[^>]*/>|<(?:[\w.-]+:)?image\b[^>]*>\s*</(?:[\w.-]+:)?image>""",
+            """<(?:[\w.-]+:)?image\b[^>]*>""",
             RegexOption.IGNORE_CASE
         )
         private val HREF_ATTR_REGEX = Regex(
-            """((?:xlink:)?)href\s*=\s*(["'])(.*?)\2""",
+            """(?<![\w.:-])((?:[\w.-]+:)?)href\s*=\s*(["'])(.*?)\2""",
             setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL)
         )
+        private val MALFORMED_PERCENT_ESCAPE_REGEX = Regex("%(?![0-9A-Fa-f]{2})")
+        private val HTTP_URL_REGEX = Regex("""^https?://[^/?#\s]""", RegexOption.IGNORE_CASE)
     }
 }
