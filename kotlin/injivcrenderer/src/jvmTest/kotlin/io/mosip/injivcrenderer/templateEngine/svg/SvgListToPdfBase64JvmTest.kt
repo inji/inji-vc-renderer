@@ -68,7 +68,7 @@ class SvgListToPdfBase64JvmTest {
     }
 
     @Test
-    fun `test missing or invalid image href still produces PDF`() {
+    fun `test kept or replaced image href produces PDF`() {
         val mapper = ObjectMapper()
         val renderMethod = mapper.readTree("""{"type":"TemplateRenderMethod"}""")
         val tinyPng = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
@@ -98,6 +98,9 @@ class SvgListToPdfBase64JvmTest {
             portrait to "https://:443",
             portrait to "data:image/png;base64,aGVsbG8=",
             portrait to "data:image/png,hello",
+            portrait to "data:image/webp;base64,UklGRhoAAABXRUJQVlA4TA0AAAAvAAAAEAcQERGIiP4HAA==",
+            portrait to "data:image/png;base64,\n${tinyPng.substringAfter(",")}",
+            portrait to "data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%2F%3E",
             withTitle to null,
             withDataHref to tinyPng
         )
