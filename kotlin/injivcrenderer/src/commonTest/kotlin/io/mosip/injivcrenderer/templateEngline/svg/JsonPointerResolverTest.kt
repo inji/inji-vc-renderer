@@ -1,5 +1,6 @@
 package io.mosip.injivcrenderer.templateEngline.svg
 
+import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
 import io.mosip.injivcrenderer.templateEngine.svg.JsonPointerResolver
 import io.mosip.injivcrenderer.templateEngine.svg.NoImagePlaceholder
@@ -341,8 +342,218 @@ class JsonPointerResolverTest {
         )
     }
 
+    @Test
+    fun `empty or null face image uses placeholder`() {
+        for (face in listOf("", "   ", null)) {
+            val result = renderSvg(PORTRAIT_TEMPLATE, mapOf("face" to face))
+
+            assertEquals(portraitSvg(NoImagePlaceholder.DATA_URI), result, "face: $face")
+        }
+    }
+
+    @Test
+    fun `face image outside render property uses placeholder`() {
+        val result = renderSvg(
+            PORTRAIT_TEMPLATE,
+            mapOf("fullName" to "John", "face" to TINY_PNG_DATA_URI),
+            """{"type":"TemplateRenderMethod","template":{"renderProperty":["/credentialSubject/fullName"]}}"""
+        )
+
+        assertEquals(portraitSvg(NoImagePlaceholder.DATA_URI), result)
+    }
+
+    @Test
+    fun `missing face after data uri prefix uses placeholder`() {
+        val svg = "<svg><image id=\"portrait\" xlink:href=\"data:image/png;base64,{{/credentialSubject/face}}\"/></svg>"
+
+        val result = renderSvg(svg, emptyMap())
+
+        assertEquals(portraitSvg(NoImagePlaceholder.DATA_URI), result)
+    }
+
+    @Test
+    fun `malformed face image uses placeholder`() {
+        val malformedFaces = listOf(
+            "abc",
+            "null",
+            "data:image/png;base64,abc",
+            "data:image/png;base64,%%garbage%%",
+            "data:image/png;base64,iVBO=Rw0",
+            "data:image/png;base64,",
+            "data:image/png;base64",
+            "data:text/plain;base64,aGVsbG8=",
+            "data:image/png,",
+            "data:image/png,%GG",
+            "data:image/svg+xml,%3Csvg%",
+            "data:image/png;\nbase64,abc"
+        )
+
+        for (face in malformedFaces) {
+            val result = renderSvg(PORTRAIT_TEMPLATE, mapOf("face" to face))
+
+            assertEquals(portraitSvg(NoImagePlaceholder.DATA_URI), result, "face: $face")
+        }
+    }
+
+    @Test
+    fun `relative path and fragment face image use placeholder`() {
+        val unloadableFaces = listOf("logo.png", "./logo.png", "../images/logo.png", "#photo", "file:///tmp/logo.png")
+
+        for (face in unloadableFaces) {
+            val result = renderSvg(PORTRAIT_TEMPLATE, mapOf("face" to face))
+
+            assertEquals(portraitSvg(NoImagePlaceholder.DATA_URI), result, "face: $face")
+        }
+    }
+
+    @Test
+    fun `valid face data uri with line breaks is kept`() {
+        val face = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ\n" +
+            "AAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+
+        val result = renderSvg(PORTRAIT_TEMPLATE, mapOf("face" to face))
+
+        assertEquals(portraitSvg(face), result)
+    }
+
+    @Test
+    fun `https image href is kept`() {
+        val logoUrl = "https://example.com/logo.png"
+
+        val result = renderSvg(PORTRAIT_TEMPLATE, mapOf("face" to logoUrl))
+
+        assertEquals(portraitSvg(logoUrl), result)
+    }
+
+    @Test
+    fun `http url with host is kept`() {
+        val urls = listOf(
+            "https://example.com:8080/logo.png",
+            "https://user:pw@example.com/logo.png",
+            "https://[::1]:8080/logo.png",
+            "HTTP://EXAMPLE.COM/LOGO.PNG"
+        )
+
+        for (url in urls) {
+            val result = renderSvg(PORTRAIT_TEMPLATE, mapOf("face" to url))
+
+            assertEquals(portraitSvg(url), result, "face: $url")
+        }
+    }
+
+    @Test
+    fun `data uri without supported image content uses placeholder`() {
+        val nonImageFaces = listOf(
+            "data:image/png;base64,aGVsbG8=",
+            "data:image/png,hello",
+            "data:image/jpeg;base64,PHN2Zz48L3N2Zz4=",
+            "data:image/svg+xml;base64,aGVsbG8=",
+            "data:image/svg+xml,hello",
+            "data:image/webp;base64,UklGRhoAAABXRUJQVlA4TA0AAAAvAAAAEAcQERGIiP4HAA=="
+        )
+
+        for (face in nonImageFaces) {
+            val result = renderSvg(PORTRAIT_TEMPLATE, mapOf("face" to face))
+
+            assertEquals(portraitSvg(NoImagePlaceholder.DATA_URI), result, "face: $face")
+        }
+    }
+
+    @Test
+    fun `data uri with image content is kept`() {
+        val imageFaces = listOf(
+            "data:image/png;base64,/9j/4AAQSkZJRg==",
+            "data:image/gif;base64,R0lGODlhAQABAAAAACw=",
+            "data:image/bmp;base64,Qk0AAAAA",
+            "data:image/tiff;base64,SUkqAA==",
+            "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciLz4=",
+            "data:image/png,%89PNG%0D%0A%1A%0A"
+        )
+
+        for (face in imageFaces) {
+            val result = renderSvg(PORTRAIT_TEMPLATE, mapOf("face" to face))
+
+            assertEquals(portraitSvg(face), result, "face: $face")
+        }
+    }
+
+    @Test
+    fun `http url without host uses placeholder`() {
+        val hostlessUrls = listOf(
+            "https://", "http://", "HTTPS://", "https:///logo.png", "https://?size=1", "https://#photo",
+            "https://user@", "https://:443", "https://user@:443/logo.png"
+        )
+
+        for (url in hostlessUrls) {
+            val result = renderSvg(PORTRAIT_TEMPLATE, mapOf("face" to url))
+
+            assertEquals(portraitSvg(NoImagePlaceholder.DATA_URI), result, "face: $url")
+        }
+    }
+
+    @Test
+    fun `single quoted href uses placeholder with same quote`() {
+        val result = renderSvg("<svg><image id='portrait' href='-'></image></svg>", emptyMap())
+
+        assertEquals("<svg><image id='portrait' href='${NoImagePlaceholder.DATA_URI}'></image></svg>", result)
+    }
+
+    @Test
+    fun `percent encoded face data uri is kept`() {
+        val face = "data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%2F%3E"
+
+        val result = renderSvg(PORTRAIT_TEMPLATE, mapOf("face" to face))
+
+        assertEquals(portraitSvg(face), result)
+    }
+
+    @Test
+    fun `data href attribute is unchanged`() {
+        val svg = "<svg><image id=\"portrait\" data-href=\"-\" xlink:href=\"{{/credentialSubject/face}}\"/></svg>"
+
+        val result = renderSvg(svg, emptyMap())
+
+        assertEquals("<svg><image id=\"portrait\" data-href=\"-\" xlink:href=\"${NoImagePlaceholder.DATA_URI}\"/></svg>", result)
+    }
+
+    @Test
+    fun `image without href is unchanged`() {
+        val svg = "<svg><image id=\"portrait\" width=\"80\" height=\"100\"/></svg>"
+
+        val result = renderSvg(svg, emptyMap())
+
+        assertEquals(svg, result)
+    }
+
+    @Test
+    fun `image with child content replaces only opening tag href`() {
+        val svg = "<svg><image id=\"portrait\" xlink:href=\"{{/credentialSubject/face}}\">" +
+            "<title>Portrait</title><desc>href=\"-\"</desc></image></svg>"
+
+        val result = renderSvg(svg, emptyMap())
+
+        assertEquals(
+            "<svg><image id=\"portrait\" xlink:href=\"${NoImagePlaceholder.DATA_URI}\">" +
+                "<title>Portrait</title><desc>href=\"-\"</desc></image></svg>",
+            result
+        )
+    }
+
+    private fun renderSvg(
+        svg: String,
+        credentialSubject: Map<String, Any?>,
+        renderMethodJson: String = """{"type":"TemplateRenderMethod"}"""
+    ): String {
+        val vc = mapper.valueToTree<JsonNode>(mapOf("credentialSubject" to credentialSubject))
+        val renderMethod = mapper.readTree(renderMethodJson)
+        return JsonPointerResolver("test-trace-id").replaceSvgPlaceholders(svg, vc, renderMethod, "{}", null)
+    }
+
+    private fun portraitSvg(href: String) = "<svg><image id=\"portrait\" xlink:href=\"$href\"/></svg>"
+
     private companion object {
         const val TINY_PNG_DATA_URI =
             "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+        const val PORTRAIT_TEMPLATE = "<svg><image id=\"portrait\" xlink:href=\"{{/credentialSubject/face}}\"/></svg>"
     }
 }
