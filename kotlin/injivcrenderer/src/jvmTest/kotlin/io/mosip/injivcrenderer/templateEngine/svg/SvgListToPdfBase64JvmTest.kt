@@ -94,6 +94,10 @@ class SvgListToPdfBase64JvmTest {
             portrait to "logo.png",
             portrait to "#photo",
             portrait to "https://",
+            portrait to "https://user@",
+            portrait to "https://:443",
+            portrait to "data:image/png;base64,aGVsbG8=",
+            portrait to "data:image/png,hello",
             withTitle to null,
             withDataHref to tinyPng
         )

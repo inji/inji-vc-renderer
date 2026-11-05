@@ -426,8 +426,63 @@ class JsonPointerResolverTest {
     }
 
     @Test
+    fun `http url with host is kept`() {
+        val urls = listOf(
+            "https://example.com:8080/logo.png",
+            "https://user:pw@example.com/logo.png",
+            "https://[::1]:8080/logo.png",
+            "HTTP://EXAMPLE.COM/LOGO.PNG"
+        )
+
+        for (url in urls) {
+            val result = renderSvg(PORTRAIT_TEMPLATE, mapOf("face" to url))
+
+            assertEquals(portraitSvg(url), result, "face: $url")
+        }
+    }
+
+    @Test
+    fun `data uri without supported image content uses placeholder`() {
+        val nonImageFaces = listOf(
+            "data:image/png;base64,aGVsbG8=",
+            "data:image/png,hello",
+            "data:image/jpeg;base64,PHN2Zz48L3N2Zz4=",
+            "data:image/svg+xml;base64,aGVsbG8=",
+            "data:image/svg+xml,hello",
+            "data:image/webp;base64,UklGRhoAAABXRUJQVlA4TA0AAAAvAAAAEAcQERGIiP4HAA=="
+        )
+
+        for (face in nonImageFaces) {
+            val result = renderSvg(PORTRAIT_TEMPLATE, mapOf("face" to face))
+
+            assertEquals(portraitSvg(NoImagePlaceholder.DATA_URI), result, "face: $face")
+        }
+    }
+
+    @Test
+    fun `data uri with image content is kept`() {
+        val imageFaces = listOf(
+            "data:image/png;base64,/9j/4AAQSkZJRg==",
+            "data:image/gif;base64,R0lGODlhAQABAAAAACw=",
+            "data:image/bmp;base64,Qk0AAAAA",
+            "data:image/tiff;base64,SUkqAA==",
+            "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciLz4=",
+            "data:image/png,%89PNG%0D%0A%1A%0A"
+        )
+
+        for (face in imageFaces) {
+            val result = renderSvg(PORTRAIT_TEMPLATE, mapOf("face" to face))
+
+            assertEquals(portraitSvg(face), result, "face: $face")
+        }
+    }
+
+    @Test
     fun `http url without host uses placeholder`() {
-        val hostlessUrls = listOf("https://", "http://", "HTTPS://", "https:///logo.png", "https://?size=1", "https://#photo")
+        val hostlessUrls = listOf(
+            "https://", "http://", "HTTPS://", "https:///logo.png", "https://?size=1", "https://#photo",
+            "https://user@", "https://:443", "https://user@:443/logo.png"
+        )
 
         for (url in hostlessUrls) {
             val result = renderSvg(PORTRAIT_TEMPLATE, mapOf("face" to url))
