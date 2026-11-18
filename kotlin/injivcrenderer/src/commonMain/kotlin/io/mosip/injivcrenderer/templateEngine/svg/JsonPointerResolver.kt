@@ -11,8 +11,11 @@ import io.mosip.injivcrenderer.constants.Constants.TEMPLATE
 import io.mosip.injivcrenderer.constants.VcRendererErrorCodes.MISSING_JSON_PATH
 import io.mosip.injivcrenderer.qrCode.QrCodeGenerator
 import io.mosip.injivcrenderer.qrCode.QrCodeGenerator.Companion.DEFAULT_FALLBACK_QR_BASE64
+import java.io.ByteArrayOutputStream
 import java.util.logging.Level
 import java.util.logging.Logger
+import kotlin.io.encoding.Base64
+import kotlin.io.encoding.ExperimentalEncodingApi
 
 class JsonPointerResolver(private val traceabilityId: String) {
     private val className = JsonPointerResolver::class.simpleName
@@ -38,7 +41,7 @@ class JsonPointerResolver(private val traceabilityId: String) {
         return IMAGE_TAG_REGEX.replace(svg) { imageMatch ->
             HREF_ATTR_REGEX.replace(imageMatch.value) { hrefMatch ->
                 val value = hrefMatch.groupValues[3]
-                if (value.trim() != "-") {
+                if (isRenderableImageHref(value)) {
                     hrefMatch.value
                 } else {
                     val prefix = hrefMatch.groupValues[1]
@@ -47,6 +50,70 @@ class JsonPointerResolver(private val traceabilityId: String) {
                 }
             }
         }
+    }
+
+    private fun isRenderableImageHref(href: String): Boolean {
+        val value = href.trim()
+        return when {
+            HTTP_URL_REGEX.containsMatchIn(value) -> true
+            value.startsWith("data:", ignoreCase = true) -> isValidImageDataUri(value)
+            else -> false
+        }
+    }
+
+    private fun isValidImageDataUri(dataUri: String): Boolean {
+        val content = dataUri.substring("data:".length)
+        val commaIndex = content.indexOf(',')
+        if (commaIndex == -1) return false
+
+        val metadata = content.substring(0, commaIndex).split(';').map { it.trim().lowercase() }
+        val mediaType = metadata.first()
+        if (!mediaType.startsWith("image/")) return false
+
+        val payload = content.substring(commaIndex + 1).filterNot { it.isWhitespace() }
+        val bytes = if ("base64" in metadata.drop(1)) decodeBase64(payload) else decodePercentEncoded(payload)
+        return bytes != null && isImageContent(bytes, mediaType)
+    }
+
+    @OptIn(ExperimentalEncodingApi::class)
+    private fun decodeBase64(value: String): ByteArray? {
+        return if (isBase64(value)) Base64.decode(value) else null
+    }
+
+    private fun decodePercentEncoded(value: String): ByteArray? {
+        if (!isPercentEncoded(value)) return null
+        val bytes = ByteArrayOutputStream()
+        var index = 0
+        while (index < value.length) {
+            val percentIndex = value.indexOf('%', index)
+            if (percentIndex == -1) {
+                bytes.write(value.substring(index).encodeToByteArray())
+                break
+            }
+            bytes.write(value.substring(index, percentIndex).encodeToByteArray())
+            bytes.write(value.substring(percentIndex + 1, percentIndex + 3).toInt(16))
+            index = percentIndex + 3
+        }
+        return bytes.toByteArray()
+    }
+
+    private fun isImageContent(bytes: ByteArray, mediaType: String): Boolean {
+        if (mediaType == "image/svg+xml") return bytes.decodeToString().contains("<svg", ignoreCase = true)
+        return IMAGE_SIGNATURES.any { signature ->
+            bytes.size >= signature.size && signature.indices.all { bytes[it] == signature[it] }
+        }
+    }
+
+    private fun isPercentEncoded(value: String): Boolean {
+        return value.isNotEmpty() && !MALFORMED_PERCENT_ESCAPE_REGEX.containsMatchIn(value)
+    }
+
+    private fun isBase64(value: String): Boolean {
+        val paddingCount = value.length - value.trimEnd('=').length
+        return value.isNotEmpty() &&
+            value.length % 4 == 0 &&
+            paddingCount <= 2 &&
+            value.dropLast(paddingCount).all { it in 'A'..'Z' || it in 'a'..'z' || it in '0'..'9' || it == '+' || it == '/' }
     }
 
     private fun replaceVcPlaceholders(svg: String, vcJsonNode: JsonNode, element: JsonNode): String {
@@ -127,12 +194,26 @@ class JsonPointerResolver(private val traceabilityId: String) {
     companion object {
         private val PLACEHOLDER_REGEX = Regex("\\{\\{(/[^}]*)\\}\\}|\\{\\{\\}\\}")
         private val IMAGE_TAG_REGEX = Regex(
-            """<(?:[\w.-]+:)?image\b[^>]*/>|<(?:[\w.-]+:)?image\b[^>]*>\s*</(?:[\w.-]+:)?image>""",
+            """<(?:[\w.-]+:)?image\b[^>]*>""",
             RegexOption.IGNORE_CASE
         )
         private val HREF_ATTR_REGEX = Regex(
-            """((?:xlink:)?)href\s*=\s*(["'])(.*?)\2""",
+            """(?<![\w.:-])((?:[\w.-]+:)?)href\s*=\s*(["'])(.*?)\2""",
             setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL)
+        )
+        private val MALFORMED_PERCENT_ESCAPE_REGEX = Regex("%(?![0-9A-Fa-f]{2})")
+        private val HTTP_URL_REGEX = Regex(
+            """^https?://(?:[^/?#@\s]*@)?[^/?#@:\s][^/?#@\s]*(?:[/?#]|$)""",
+            RegexOption.IGNORE_CASE
+        )
+        private val IMAGE_SIGNATURES = listOf(
+            byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A),
+            byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte()),
+            "GIF87a".encodeToByteArray(),
+            "GIF89a".encodeToByteArray(),
+            byteArrayOf(0x42, 0x4D),
+            byteArrayOf(0x49, 0x49, 0x2A, 0x00),
+            byteArrayOf(0x4D, 0x4D, 0x00, 0x2A)
         )
     }
 }
